@@ -1,3 +1,6 @@
+<img width="960" height="1280" alt="image" src="https://github.com/user-attachments/assets/f6c1f2cf-56ba-40a1-b4c7-b82133941f69" />
+<img width="960" height="1280" alt="image" src="https://github.com/user-attachments/assets/cc629725-a96a-4740-89b2-9975a27474ca" />
+
 # 🎨 Style Atlas & 🧑 Character Atlas for ComfyUI
 
 Two prompt-building nodes driven by editable Excel libraries:
@@ -55,6 +58,8 @@ Keep each `.xlsx` next to its `.py` file and keep these file names.
 
 ## 🎨 Style Atlas
 
+<img width="378" height="614" alt="image" src="https://github.com/user-attachments/assets/58846596-94aa-4fd4-9ec0-2e5a6bbc110a" />
+
 Adds a rendering style to your prompt.
 
 ### Controls
@@ -83,6 +88,7 @@ output:  a lighthouse on a cliff, gouache illustration, opaque layered pigment, 
 ---
 
 ## 🧑 Character Atlas
+<img width="407" height="600" alt="image" src="https://github.com/user-attachments/assets/6e6b3bf0-8bfb-4b56-8cbb-473159f6a668" />
 
 Builds a character description and **adds it to the start of your prompt**.
 
