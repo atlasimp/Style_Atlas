@@ -1,3 +1,4 @@
+<img width="960" height="1280" alt="image" src="https://github.com/user-attachments/assets/f9c0b38d-cba9-4fad-9b63-a4f336472f34" />
 # 🎨 Style Atlas · 🧑 Character Atlas · 🏞️ Setting Atlas
 
 *Three ComfyUI nodes that turn an Excel library into well-written prompts, so you can spend your time choosing instead of typing.*
