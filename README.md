@@ -29,6 +29,7 @@ All three live under **Add Node › Style Atlas › Prompt**. Every node starts 
 Click the small **?** in a node's title bar (or right-click › **❔ Atlas help**) to read a short help.
 
 ### 🧑 Character Atlas: who
+<img width="316" height="365" alt="image" src="https://github.com/user-attachments/assets/818586e6-4ec4-4b04-9e33-6e0de4378211" />
 
 Pick a **Known Character** (franchise › character › variant, with masked/unmasked and costume variants), a **Known Role** (an actor in a role), a **Preset**, or build your own **Custom** character from identity, face, hair, outfit and accessories. Not sure? **🎲 Random (all sources)** picks the source for you.
 
@@ -37,10 +38,12 @@ Whatever the source, you can add makeup, up to two expressions with an intensity
 Teen and child characters never receive rows marked *Adult only*. They are skipped and reported in `info`.
 
 ### 🏞️ Setting Atlas: where
+<img width="341" height="383" alt="image" src="https://github.com/user-attachments/assets/7c0f4833-aaa1-4469-b648-e5771715da26" />
 
 Choose a **Preset**, **Location**, **Simple Background**, **Studio**, **Known Location** or **Anime Setting**, or let 🎲 decide. Optional layers add weather, lighting, condition, décor, palette, a frame and population. Population is the only layer that adds people, on purpose. Output can be natural sentences or Danbooru tags.
 
 ### 🎨 Style Atlas: how
+<img width="309" height="597" alt="image" src="https://github.com/user-attachments/assets/0da4fc1a-0411-4efb-b753-e58ab6335dd6" />
 
 The first dropdown is the **mode**:
 
