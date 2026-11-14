@@ -1,149 +1,126 @@
 """
-Style Atlas - ComfyUI node that builds prompts from an XLSX style library.
+🎨 Style Atlas - decides HOW the image looks: a rendering style (or a ★ preset) plus optional
+modifiers (quality, genre, palette, composition x3), lighting and mood, from style_atlas_library.xlsx.
 
-The node works on its own (Python only). The optional JS file adds linked
-dropdowns and live counts; if it fails, the node still loads and runs.
+The node works on its own (Python only). js/style_atlas.js adds the linked filters, live counts and
+collapsible sections; js/atlas_common.js adds the ❔ help; if any JS fails, the node still runs.
 """
-import os
 import re
-import glob
 import random
 
-NODE_DIR = os.path.dirname(os.path.abspath(__file__))
-LIBRARY_NAME = "style_atlas_library.xlsx"
+try:
+    from .atlas_core import (NONE, BYPASS, RANDOM, RANDOM_ALL, SEP, Options, clean, hier_label, pick,
+                             load_workbook_dict, library_mtime, register_thumbs, expand_wildcards,
+                             wildcard_signature, seed_input, section)
+except ImportError:  # standalone tests
+    from atlas_core import (NONE, BYPASS, RANDOM, RANDOM_ALL, SEP, Options, clean, hier_label, pick,
+                            load_workbook_dict, library_mtime, register_thumbs, expand_wildcards,
+                            wildcard_signature, seed_input, section)
 
-MODIFIER_CATEGORIES = [
-    "Quality", "Mood & Atmosphere", "Composition & Shot", "Genre",
-    "Lighting", "Palette", "Architectural Style", "Vehicle Design", "Product Design",
-]
-# Subject-specific modifiers: only offered when the matching subject is chosen
-MODIFIER_SUBJECT = {
-    "Architectural Style": "Architecture",
-    "Vehicle Design": "Automotive",
-    "Product Design": "Product",
-}
-
-RANDOM = "🎲 Random"
-NONE = "None"
+LIBRARY = "style_atlas_library.xlsx"
+NODE = "StyleAtlasNode"
 ALL = "All"
-
-POSITIONS = {
-    "prompt, style": "{prompt}, {style}",
-    "style, prompt": "{style}, {prompt}",
-    "Style: style. Subject: prompt": "Style: {style} Subject: {prompt}",
-    "Subject: prompt. Style: style": "Subject: {prompt}. Style: {style}",
-    "prompt. style": "{prompt}. {style}",
-    "prompt, in the style of style": "{prompt}, in the style of {style}",
-    "prompt + new line + style": "{prompt}\n{style}",
-    "style only": "{style}",
-    "custom template": None,
-}
-
+STAR = "★ "
+MODE_STYLE, MODE_PRESET, MODE_MODS = "Style", "★ Preset", "Modifiers only"
+MODES = [BYPASS, MODE_STYLE, MODE_PRESET, MODE_MODS, RANDOM_ALL]
+MODIFIER_CATEGORIES = ["Quality", "Genre", "Palette", "Composition"]
+COMPOSITION_SLOTS = 3
 VERSIONS = ["Short (fallback Long)", "Long (fallback Short)", "Short only", "Long only"]
 REALISM = [ALL, "1", "2", "3", "4", "5"]
 REALISM_MODE = ["Exact", "±1"]
+SUBJECT_PREFIX = "subject: "
+DEFAULT_SUBJECTS = ("Main",)
+DEFAULT_POSITIONS = {
+    "Prompt, style": "{prompt}, {style}",
+    "Style, prompt": "{style}, {prompt}",
+    "Style: style. Subject: prompt": "Style: {style} Subject: {prompt}",
+    "Subject: prompt. Style: style": "Subject: {prompt}. Style: {style}",
+    "Prompt. Style": "{prompt}. {style}",
+    "Prompt, in the style of style": "{prompt}, in the style of {style}",
+    "Prompt, rendered as style": "{prompt}, rendered as {style}",
+    "Prompt + new line + style": "{prompt}\n{style}",
+    "Style only": "{style}",
+    "Custom template": None,
+}
 
-COUNT_RE = re.compile(r"\s*\(\d+\)\s*$")
+HELP = """🎨 Style Atlas decides how the image looks.
+
+• mode: None (bypass) does nothing, Style picks a style, ★ Preset picks a ready-made combo, Modifiers only keeps just the quality / genre / palette / composition / lighting / mood layers, 🎲 Random (all sources) rolls a style or a preset.
+• version: Short is lighter, Long is richer. Long suits Krea 2 well.
+• FILTERS: tick one or more subjects (Main, Portrait & Character…), then narrow by era, realism, category. The counts show what is left.
+• MODIFIERS / LOOK: optional layers on top of the style. "Group | 🎲 Random" rolls inside a group.
+• ADVANCED: where the style goes in the prompt and whether style names are kept.
+• Wildcards: __adjective__ in the prompt becomes a random line of wildcards/adjective.txt.
+• seed: same seed, same result. info shows every choice with its ID."""
 
 
-def clean(value):
-    """Remove the ' (123)' count suffix added by the JS for display."""
-    return COUNT_RE.sub("", str(value or "")).strip()
+# --------------------------------------------------------------------------- library
+def library():
+    data, err = load_workbook_dict(LIBRARY)
+    styles, mods = [], {c: [] for c in MODIFIER_CATEGORIES}
+    for r in data.get("Styles", []):
+        name = r.get("Style Name")
+        short, long_ = r.get("Short Version", ""), r.get("Long Version", "")
+        if not name or not (short or long_):
+            continue
+        try:
+            real = int(float(r.get("Realism (1-5)") or r.get("Realism") or 3))
+        except ValueError:
+            real = 3
+        d = dict(id=r.get("ID", ""), name=name, cat=r.get("Category", ""), sub=r.get("Subcategory", ""),
+                 era=r.get("Era") or "Any", real=real, short=short, long=long_,
+                 subject=r.get("Subject") or "Main", layer=r.get("Layer") or "Base Style")
+        if d["layer"] == "Modifier":
+            if d["cat"] in mods:
+                mods[d["cat"]].append(d)
+        else:
+            styles.append(d)
+    presets = [dict(id=r.get("ID", ""), name=r.get("Name", ""), short=r.get("Short_Prompt", ""),
+                    long=r.get("Long_Prompt", "")) for r in data.get("Presets", []) if r.get("Name")]
+    positions = {}
+    for r in data.get("Style_Positions", []):
+        p, t = r.get("Position"), r.get("Template", "")
+        if p:
+            positions[p] = None if p.lower().startswith("custom") else t.replace("\\n", "\n")
+    subjects = sorted({r["subject"] for r in styles}, key=lambda x: (x != "Main", x))
+    return dict(error=err, styles=styles, mods=mods, presets=presets, subjects=subjects,
+                lighting=data.get("Lighting", []), moods=data.get("Moods", []),
+                positions=positions or DEFAULT_POSITIONS)
 
 
-# --------------------------------------------------------------------------
-# Library loading (cached, reloads automatically when the xlsx is modified)
-# --------------------------------------------------------------------------
-_cache = {"path": None, "mtime": None, "rows": [], "error": None}
+def build_options(lib):
+    """Modifier dropdowns: 'Subcategory | Name' (grouped random), plus Lighting and Mood."""
+    opts = {}
+    for c in MODIFIER_CATEGORIES:
+        rows = sorted(lib["mods"][c], key=lambda d: d["sub"])
+        entries = [(f"{d['sub']}{SEP}{d['name']}" if d["sub"] else d["name"], dict(d, ID=d["id"])) for d in rows]
+        opts[c] = Options(entries)
+    for key, rows in (("Lighting", lib["lighting"]), ("Mood", lib["moods"])):
+        entries = [(hier_label(r, "Umbrella", "Variant"), r) for r in rows]
+        opts[key] = Options(entries)
+    return opts
 
 
-def library_path():
-    p = os.path.join(NODE_DIR, LIBRARY_NAME)
-    if os.path.isfile(p):
-        return p
-    found = sorted(f for f in glob.glob(os.path.join(NODE_DIR, "*.xlsx"))
-                   if not os.path.basename(f).startswith("~$"))
-    return found[0] if found else None
+def mod_key(cat):
+    return re.sub(r"[^a-z0-9]+", "_", cat.lower()).strip("_")
 
 
-def load_library():
-    path = library_path()
-    if not path:
-        _cache.update(rows=[], error=f"No library found. Put {LIBRARY_NAME} in {NODE_DIR}")
-        return _cache["rows"]
-    mtime = os.path.getmtime(path)
-    if _cache["path"] == path and _cache["mtime"] == mtime:
-        return _cache["rows"]
-    try:
-        import openpyxl  # imported here so a missing package never blocks the node
-    except ImportError:
-        _cache.update(rows=[], error="openpyxl is not installed (pip install openpyxl)")
-        return _cache["rows"]
-    try:
-        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-        ws = wb["Styles"] if "Styles" in wb.sheetnames else wb.worksheets[0]
-        it = ws.iter_rows(values_only=True)
-        header = [str(h).strip() if h is not None else "" for h in next(it)]
-
-        def col(*names):
-            for n in names:
-                if n in header:
-                    return header.index(n)
-            return None
-
-        c = dict(name=col("Style Name"), cat=col("Category"), sub=col("Subcategory"),
-                 era=col("Era"), real=col("Realism (1-5)", "Realism"),
-                 short=col("Short Version"), long=col("Long Version"),
-                 subject=col("Subject"), layer=col("Layer"))
-
-        def get(r, key):
-            i = c[key]
-            return r[i] if i is not None and i < len(r) else None
-
-        rows = []
-        for r in it:
-            name = get(r, "name")
-            if not name:
-                continue
-            cat = str(get(r, "cat") or "").strip()
-            short = str(get(r, "short") or "").strip()
-            long_ = str(get(r, "long") or "").strip()
-            if not short and not long_:
-                continue
-            try:
-                real = int(get(r, "real"))
-            except (TypeError, ValueError):
-                real = 3
-            layer = str(get(r, "layer") or "").strip() or (
-                "Modifier" if cat in MODIFIER_CATEGORIES else "Base Style")
-            rows.append(dict(
-                name=str(name).strip(), cat=cat, sub=str(get(r, "sub") or "").strip(),
-                era=str(get(r, "era") or "Any").strip(), real=real,
-                short=short, long=long_,
-                subject=str(get(r, "subject") or "Main").strip(), layer=layer))
-        wb.close()
-        _cache.update(path=path, mtime=mtime, rows=rows, error=None)
-    except Exception as e:  # never crash ComfyUI because of the spreadsheet
-        _cache.update(path=None, mtime=None, rows=[], error=f"Could not read {os.path.basename(path)}: {e}")
-    return _cache["rows"]
+def comp_keys():
+    return [f"composition_{i}" for i in range(1, COMPOSITION_SLOTS + 1)]
 
 
 def public_data():
-    """Light data sent to the JS (no prompt text)."""
-    rows = load_library()
+    lib = library()
     return {
-        "error": _cache["error"],
-        "modifier_categories": MODIFIER_CATEGORIES,
-        "modifier_subject": MODIFIER_SUBJECT,
-        "rows": [dict(n=r["name"], c=r["cat"], s=r["sub"], j=r["subject"], e=r["era"],
-                      r=r["real"], m=1 if r["layer"] == "Modifier" else 0,
-                      hs=1 if r["short"] else 0, hl=1 if r["long"] else 0) for r in rows],
+        "error": lib["error"],
+        "subjects": lib["subjects"],
+        "presets": [STAR + p["name"] for p in lib["presets"]],
+        "rows": [dict(n=r["name"], c=r["cat"], s=r["sub"], j=r["subject"], e=r["era"], r=r["real"],
+                      hs=1 if r["short"] else 0, hl=1 if r["long"] else 0) for r in lib["styles"]],
     }
 
 
-# --------------------------------------------------------------------------
-# Filtering helpers (same logic as the JS, so results match the counts)
-# --------------------------------------------------------------------------
+# --------------------------------------------------------------------------- helpers
 def version_ok(r, version):
     if version == "Short only":
         return bool(r["short"])
@@ -158,171 +135,219 @@ def pick_text(r, version):
     return r["short"] or ("" if version == "Short only" else r["long"])
 
 
-def subject_ok(r, subject):
-    return subject == ALL or r["subject"] == subject
-
-
 def realism_ok(r, realism, mode):
     if realism == ALL:
         return True
-    target = int(realism)
-    return r["real"] == target if mode == "Exact" else abs(r["real"] - target) <= 1
+    t = int(realism)
+    return r["real"] == t if mode == "Exact" else abs(r["real"] - t) <= 1
 
 
 def strip_name(text):
-    """'Style Name: description.' -> 'description.'"""
     head, sep, tail = text.partition(":")
     return tail.strip() if sep and len(head) <= 80 else text
 
 
 def finish(text):
-    text = text.strip()
+    text = (text or "").strip()
     return text if not text or text[-1] in ".!?" else text + "."
 
 
-# --------------------------------------------------------------------------
-# Node
-# --------------------------------------------------------------------------
+def ticked_subjects(lib, kw):
+    """Subjects whose checkbox is on. Nothing ticked = every subject (never an empty pool)."""
+    on = [s for s in lib["subjects"] if kw.get(SUBJECT_PREFIX + s, s in DEFAULT_SUBJECTS)]
+    return on or list(lib["subjects"])
+
+
+# --------------------------------------------------------------------------- node
 class StyleAtlasNode:
+    DESCRIPTION = HELP
+
     @classmethod
     def INPUT_TYPES(cls):
-        rows = load_library()
-        base = [r for r in rows if r["layer"] != "Modifier"]
-        mods = [r for r in rows if r["layer"] == "Modifier"]
-        subjects = [ALL] + sorted({r["subject"] for r in rows if r["subject"]},
-                                  key=lambda s: (s != "Main", s))
+        lib = library()
+        base = lib["styles"]
+        opts = build_options(lib)
         cats = [ALL] + list(dict.fromkeys(r["cat"] for r in base))
         subs = [ALL] + sorted({r["sub"] for r in base if r["sub"]})
         eras = [ALL] + sorted({r["era"] for r in base if r["era"]})
+        presets = [RANDOM] + [STAR + p["name"] for p in lib["presets"]]
         styles = [RANDOM] + sorted(r["name"] for r in base)
-
         req = {
-            "prompt": ("STRING", {"multiline": True, "default": ""}),
-            "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
-            "version": (VERSIONS,),
-            "subject": (subjects,),
+            "prompt": ("STRING", {"multiline": True, "default": "",
+                                  "tooltip": "Your prompt. __name__ is replaced by a random line of wildcards/name.txt"}),
+            "mode": (MODES, {"default": BYPASS,
+                             "tooltip": "None (bypass) = prompt passes through unchanged (wildcards are still resolved)."}),
+            "style": (styles, {"tooltip": "Filtered by the FILTERS section. 🎲 Random = random style from the filtered list."}),
+            "preset": (presets, {"tooltip": "★ ready-made style combos from the Presets sheet."}),
+            "version": (VERSIONS, {"default": VERSIONS[1]}),
+            "section_filters": section(False),
+        }
+        for s_ in lib["subjects"]:
+            req[SUBJECT_PREFIX + s_] = ("BOOLEAN", {"default": s_ in DEFAULT_SUBJECTS,
+                                                    "tooltip": f"Include '{s_}' styles. Tick several to mix them."})
+        req.update({
+            "era": (eras,),
             "realism": (REALISM,),
             "realism_mode": (REALISM_MODE,),
-            "era": (eras,),
             "category": (cats,),
             "subcategory": (subs,),
-            "style": (styles,),
-            "style_position": (list(POSITIONS.keys()),),
-            "include_style_names": ("BOOLEAN", {"default": True}),
-        }
-        for mc in MODIFIER_CATEGORIES:
-            names = sorted(r["name"] for r in mods if r["cat"] == mc)
-            req[cls.mod_key(mc)] = ([NONE, RANDOM] + names,)
-        return {
-            "required": req,
-            "optional": {
-                "custom_template": ("STRING", {
-                    "multiline": False,
-                    "default": "{prompt}, {style}",
-                    "tooltip": "Used when style_position = custom template. Placeholders: {prompt} {style} {modifiers}",
-                }),
-            },
-        }
+            "section_modifiers": section(False),
+        })
+        for c in MODIFIER_CATEGORIES:
+            if c == "Composition":
+                for k in comp_keys():
+                    req[k] = (opts[c].values,)
+            else:
+                req[mod_key(c)] = (opts[c].values,)
+        req["section_look"] = section(False)
+        req["lighting"] = (opts["Lighting"].values,)
+        req["mood"] = (opts["Mood"].values,)
+        req["section_advanced"] = section(False)
+        req["style_position"] = (list(lib["positions"].keys()),)
+        req["include_style_names"] = ("BOOLEAN", {"default": True,
+                                                  "tooltip": "Keep the 'Style Name:' prefix of each entry."})
+        req["custom_template"] = ("STRING", {
+            "multiline": False, "default": "{prompt}, {style}",
+            "tooltip": "Used when style_position = Custom template. Placeholders: {prompt} {style} {modifiers} {lighting} {mood}"})
+        req["seed"] = seed_input()
+
+        # thumbnails: widget -> {label: ID}
+        tm = {"style": {r["name"]: r["id"] for r in base if r["id"]},
+              "preset": {STAR + p["name"]: p["id"] for p in lib["presets"] if p["id"]}}
+        for c in MODIFIER_CATEGORIES:
+            keys = comp_keys() if c == "Composition" else [mod_key(c)]
+            for k in keys:
+                tm[k] = opts[c].ids()
+        tm["lighting"] = opts["Lighting"].ids()
+        tm["mood"] = opts["Mood"].ids()
+        register_thumbs(NODE, tm)
+        return {"required": req}
 
     RETURN_TYPES = ("STRING", "STRING", "STRING")
     RETURN_NAMES = ("prompt", "style_text", "info")
+    OUTPUT_TOOLTIPS = ("Full prompt with the style placed in it.", "Only the style text this node added.",
+                       "Every choice with its ID, the seed and any warning.")
     FUNCTION = "build"
     CATEGORY = "Style Atlas/Prompt"
 
-    @staticmethod
-    def mod_key(category):
-        return "mod_" + re.sub(r"[^a-z0-9]+", "_", category.lower()).strip("_")
-
     @classmethod
     def VALIDATE_INPUTS(cls, **kwargs):
-        # Dropdown labels carry live counts from the JS ("Painting (272)"),
-        # so the built-in list check is skipped; values are cleaned in build().
+        # Dropdown labels carry live counts from the JS; values are cleaned in build().
         return True
 
-    def build(self, prompt, seed, version, subject, realism, realism_mode, era,
-              category, subcategory, style, style_position, include_style_names,
-              custom_template="{prompt}, {style}", **mods):
-        rows = load_library()
-        if not rows:
-            msg = _cache["error"] or "Style library is empty"
-            return (prompt, "", f"⚠ {msg}")
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return f"{library_mtime(LIBRARY)}:{wildcard_signature()}"
 
-        subject, realism, era = clean(subject), clean(realism), clean(era)
-        category, subcategory, style = clean(category), clean(subcategory), clean(style)
+    def build(self, prompt="", mode=BYPASS, seed=0, version=VERSIONS[1], style=RANDOM, preset=RANDOM,
+              era=ALL, realism=ALL, realism_mode="Exact", category=ALL, subcategory=ALL,
+              style_position="Prompt, style", include_style_names=True, custom_template="{prompt}, {style}", **kw):
+        prompt, wc_log = expand_wildcards(prompt or "", seed, "style_prompt")
+        mode = clean(mode)
+        if mode in (BYPASS, NONE, ""):
+            return (prompt, "", "\n".join(["Style Atlas: bypassed"] + wc_log))
+        lib = library()
+        if lib["error"] and not lib["styles"]:
+            return (prompt, "", f"⚠ {lib['error']}")
+        version = clean(version)
+        realism, era = clean(realism), clean(era)
+        category, subcategory = clean(category), clean(subcategory)
+        style, preset = clean(style), clean(preset)
         rng = random.Random(seed)
+        info, parts = [], []
+        L = "Long" if version.startswith("Long") else "Short"
+        subjects = ticked_subjects(lib, kw)
 
-        # ---- base style -----------------------------------------------------
-        pool = [r for r in rows if r["layer"] != "Modifier"
-                and subject_ok(r, subject)
+        pool = [r for r in lib["styles"]
+                if r["subject"] in subjects
                 and realism_ok(r, realism, realism_mode)
                 and (era == ALL or r["era"] == era)
                 and (category == ALL or r["cat"] == category)
                 and (subcategory == ALL or r["sub"] == subcategory)
                 and version_ok(r, version)]
-        chosen = None
-        if style and style != RANDOM:
-            chosen = next((r for r in rows if r["name"] == style), None)
-        elif pool:
-            chosen = rng.choice(pool)
 
-        info = []
-        parts = []
-        if chosen:
-            text = pick_text(chosen, version)
-            parts.append(finish(text if include_style_names else strip_name(text)))
-            info.append(f"Style: {chosen['name']} [{chosen['cat']} / {chosen['sub']}] "
-                        f"(pool {len(pool)})")
-        else:
-            info.append("Style: none matched the current filters")
+        # ---- 🎲 Random (all sources): one draw over the filtered styles + every preset
+        if mode == RANDOM_ALL:
+            n_styles = len(pool)
+            k = rng.randrange(n_styles + len(lib["presets"])) if (n_styles + len(lib["presets"])) else -1
+            if 0 <= k < n_styles:
+                mode, style = MODE_STYLE, pool[k]["name"]
+            elif k >= n_styles:
+                mode, preset = MODE_PRESET, STAR + lib["presets"][k - n_styles]["name"]
+            info.append(f"random source → {mode}")
 
-        # ---- modifiers ----------------------------------------------------
+        # ---- base style / preset
+        if mode == MODE_PRESET:
+            presets = lib["presets"]
+            p = (rng.choice(presets) if presets else None) if preset == RANDOM else \
+                next((p for p in presets if STAR + p["name"] == preset), None)
+            if p:
+                parts.append(finish(pick({"Short_Prompt": p["short"], "Long_Prompt": p["long"]}, L)))
+                info.append(f"Preset: {p['name']} [{p['id']}]")
+            else:
+                info.append("⚠ Preset: nothing selected")
+        elif mode == MODE_STYLE:
+            if style == RANDOM:
+                chosen = rng.choice(pool) if pool else None
+            else:
+                chosen = next((r for r in lib["styles"] if r["name"] == style), None)
+            if chosen:
+                t = pick_text(chosen, version)
+                parts.append(finish(t if include_style_names else strip_name(t)))
+                info.append(f"Style: {chosen['name']} [{chosen['id']}] ({chosen['cat']} / {chosen['sub']}, "
+                            f"pool {len(pool)} in {', '.join(subjects)})")
+            else:
+                info.append("⚠ Style: none matched the current filters")
+
+        # ---- modifiers
+        opts = build_options(lib)
         mod_parts = []
-        for mc in MODIFIER_CATEGORIES:
-            val = clean(mods.get(self.mod_key(mc), NONE))
-            if not val or val == NONE:
-                continue
-            need = MODIFIER_SUBJECT.get(mc)
-            if need and subject not in (ALL, need):
-                continue
-            cands = [r for r in rows if r["cat"] == mc and version_ok(r, version)
-                     and (r["subject"] in ("Main", subject) or subject == ALL)]
-            if val == RANDOM:
-                m = rng.choice(cands) if cands else None
-            else:
-                m = next((r for r in rows if r["cat"] == mc and r["name"] == val), None)
-            if m:
-                t = pick_text(m, version)
-                mod_parts.append(finish(t if include_style_names else strip_name(t)))
-                info.append(f"{mc}: {m['name']}")
-
+        for c in MODIFIER_CATEGORIES:
+            keys = comp_keys() if c == "Composition" else [mod_key(c)]
+            for k in keys:
+                label, row = opts[c].resolve(kw.get(k, NONE), seed, k)
+                if row:
+                    t = pick_text(row, version)
+                    mod_parts.append(finish(t if include_style_names else strip_name(t)))
+                    info.append(f"{c}: {label} [{row['id']}]")
+        extra = {}
+        for key, okey in (("lighting", "Lighting"), ("mood", "Mood")):
+            label, row = opts[okey].resolve(kw.get(key, NONE), seed, key)
+            extra[key] = finish(pick(row, L)) if row else ""
+            if row:
+                info.append(f"{okey}: {label} [{row.get('ID', '')}]")
         modifiers = " ".join(mod_parts)
-        style_text = " ".join(p for p in [*parts, modifiers] if p)
+        style_main = " ".join(parts)
+        style_text = " ".join(x for x in (style_main, modifiers, extra["lighting"], extra["mood"]) if x)
+        style_text, wc2 = expand_wildcards(style_text, seed, "style_text")  # libraries may hold wildcards too
+        wc_log += wc2
 
-        # ---- assemble -------------------------------------------------------
-        prompt = (prompt or "").strip()
-        if style_position == "custom template":
+        # ---- assemble
+        p = prompt.strip()
+        pos = clean(style_position)
+        tpl = lib["positions"].get(pos, "{prompt}, {style}")
+        if tpl is None:  # custom
             tpl = custom_template or "{prompt}, {style}"
-            if "{modifiers}" in tpl:
-                out = tpl.replace("{prompt}", prompt).replace("{style}", " ".join(parts)) \
-                         .replace("{modifiers}", modifiers)
+            if any(x in tpl for x in ("{modifiers}", "{lighting}", "{mood}")):
+                out = (tpl.replace("{prompt}", p).replace("{style}", style_main)
+                       .replace("{modifiers}", modifiers).replace("{lighting}", extra["lighting"])
+                       .replace("{mood}", extra["mood"]))
             else:
-                out = tpl.replace("{prompt}", prompt).replace("{style}", style_text)
-        else:
-            tpl = POSITIONS.get(clean(style_position), "{prompt}, {style}")
-            if not prompt:
-                out = style_text
-            elif not style_text:
-                out = prompt
-            else:
-                p = prompt.rstrip(" .,") if "{prompt}," in tpl or "{prompt}." in tpl else prompt
                 out = tpl.replace("{prompt}", p).replace("{style}", style_text)
-        out = re.sub(r"[ \t]+", " ", out).replace(" ,", ",").replace("..", ".").strip()
-        return (out, style_text, "\n".join(info))
+        elif not p:
+            out = style_text
+        elif not style_text:
+            out = p
+        else:
+            pp = p.rstrip(" .,") if ("{prompt}," in tpl or "{prompt}." in tpl) else p
+            out = tpl.replace("{prompt}", pp).replace("{style}", style_text)
+        out = "\n".join(re.sub(r"[ \t]+", " ", line).replace(" ,", ",").replace("..", ".").strip()
+                        for line in out.split("\n")).strip()
+        info.insert(0, f"seed {seed} · {version} · {mode}")
+        return (out, style_text, "\n".join(info + wc_log))
 
 
-# --------------------------------------------------------------------------
-# API route for the JS (registered only if the ComfyUI server is available)
-# --------------------------------------------------------------------------
+# --------------------------------------------------------------------------- API for the JS
 try:
     from server import PromptServer
     from aiohttp import web
@@ -332,3 +357,6 @@ try:
         return web.json_response(public_data())
 except Exception:
     pass
+
+NODE_CLASS_MAPPINGS = {NODE: StyleAtlasNode}
+NODE_DISPLAY_NAME_MAPPINGS = {NODE: "🎨 Style Atlas"}

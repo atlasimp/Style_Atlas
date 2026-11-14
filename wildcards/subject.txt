@@ -1,0 +1,3 @@
+# Nested example: a line can hold other wildcards
+a __adjective__ __character/profession__
+a __adjective__ __profession__ dressed in __color__

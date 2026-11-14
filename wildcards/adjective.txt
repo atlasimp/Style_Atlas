@@ -1,0 +1,17 @@
+# One entry per line. Lines starting with # are ignored.
+# Use it in any Atlas prompt as __adjective__
+mysterious
+radiant
+weathered
+serene
+fierce
+whimsical
+melancholic
+elegant
+rugged
+dreamy
+playful
+stoic
+luminous
+brooding
+graceful

@@ -1,0 +1,11 @@
+# __color__
+crimson
+emerald green
+cobalt blue
+mustard yellow
+lavender
+teal
+burnt orange
+ivory
+charcoal grey
+blush pink

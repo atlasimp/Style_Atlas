@@ -1,0 +1,11 @@
+# __character/profession__ or simply __profession__
+astronaut
+baker
+librarian
+mechanic
+violinist
+florist
+firefighter
+archaeologist
+barista
+detective

@@ -1,227 +1,122 @@
-<img width="960" height="1280" alt="image" src="https://github.com/user-attachments/assets/f6c1f2cf-56ba-40a1-b4c7-b82133941f69" />
-<img width="960" height="1280" alt="image" src="https://github.com/user-attachments/assets/cc629725-a96a-4740-89b2-9975a27474ca" />
+# 🎨 Style Atlas · 🧑 Character Atlas · 🏞️ Setting Atlas
 
-# 🎨 Style Atlas & 🧑 Character Atlas for ComfyUI
-
-Two prompt-building nodes driven by editable Excel libraries:
-
-| Node | Purpose |
-|---|---|
-| **🎨 Style Atlas** | Controls **how** the image is rendered: medium, style, era, realism, modifiers. |
-| **🧑 Character Atlas** | Controls **who** is in the image: known characters, actor presets, or a custom character with face, hair, outfit, accessories and pose. |
-
-Both live under **Add Node › Style Atlas › Prompt** and can be chained:
-
-```text
-[ your scene prompt ] → 🧑 Character Atlas → 🎨 Style Atlas → CLIP Text Encode
-```
+*Three ComfyUI nodes that turn an Excel library into well-written prompts, so you can spend your time choosing instead of typing.*
 
 ---
 
+## Why this exists
+
+Writing a good prompt takes three different decisions: **who** is in the picture, **where** they are, and **how** the image is rendered. Mixing all three by hand in one text box means retyping the same descriptions again and again, forgetting the wording that worked last week, and getting styles that quietly add objects, people or backgrounds you never asked for.
+
+Style Atlas gives each of those decisions its own node. Each node reads a spreadsheet you can open, edit and grow in Excel. You get a library of tested descriptions instead of a pile of notes. You pick from a dropdown, the node writes the sentence, and the prompt stays readable.
+
+The libraries are written with **Krea 2** in mind, and they work with any model that reads natural language:
+
+* **Styles describe how the image is rendered, not what is in it.** No stray subjects, outfits or backgrounds leak in.
+* **Expressions and hair are described, not named.** Krea 2 rarely understands *"scowl"* or *"hime cut"*. It does understand *"brows pulled hard down and together, eyes narrowed, mouth flat with the corners turned down"*.
+* **Short sentences, one idea each.** Hair colour gets its own sentence, and so do the face and the hands. Krea 2 runs at CFG 1 with no negative prompt, so weights like `(tag:1.2)` do nothing. The nodes never write them.
+
+## The three nodes
+
+```text
+[ your prompt ] → 🧑 Character Atlas → 🏞️ Setting Atlas → 🎨 Style Atlas → CLIP Text Encode
+                     who                  where               how
+```
+
+All three live under **Add Node › Style Atlas › Prompt**. Every node starts on **None (bypass)**, so the prompt passes through unchanged until you choose something. Each node folds down to a couple of lines, so a full pipeline doesn't take over your workflow.
+
+Click the small **?** in a node's title bar (or right-click › **❔ Atlas help**) to read a short help.
+
+### 🧑 Character Atlas: who
+
+Pick a **Known Character** (franchise › character › variant, with masked/unmasked and costume variants), a **Known Role** (an actor in a role), a **Preset**, or build your own **Custom** character from identity, face, hair, outfit and accessories. Not sure? **🎲 Random (all sources)** picks the source for you.
+
+Whatever the source, you can add makeup, up to two expressions with an intensity, a **hand pose**, a gaze and a body pose. Each section opens with ▶ / ▼ and shows how many settings are in use, so you can tell at a glance what is active even when it's folded.
+
+Teen and child characters never receive rows marked *Adult only*. They are skipped and reported in `info`.
+
+### 🏞️ Setting Atlas: where
+
+Choose a **Preset**, **Location**, **Simple Background**, **Studio**, **Known Location** or **Anime Setting**, or let 🎲 decide. Optional layers add weather, lighting, condition, décor, palette, a frame and population. Population is the only layer that adds people, on purpose. Output can be natural sentences or Danbooru tags.
+
+### 🎨 Style Atlas: how
+
+The first dropdown is the **mode**:
+
+| mode | what it does |
+|---|---|
+| None (bypass) | nothing (wildcards are still resolved) |
+| Style | one rendering style, chosen from the filtered list |
+| ★ Preset | a ready-made combination |
+| Modifiers only | no style, just quality / genre / palette / composition / lighting / mood |
+| 🎲 Random (all sources) | a random style or preset |
+
+**Subjects are checkboxes.** Tick *Main* and *Portrait & Character* to mix them while leaving Landscape, Architecture, Automotive and Product out. Era, realism, category and subcategory narrow the list further, with live counts at every step.
+
+## Wildcards
+
+Drop `.txt` files into the `wildcards/` folder, one entry per line, then write `__name__` anywhere in a prompt:
+
+```text
+a __adjective__ __character/profession__ wearing __color__
+→ a weathered violinist wearing cobalt blue
+```
+
+The first Atlas node that receives the text resolves it, using that node's seed, so the result can be reproduced. Sub-folders work (`__character/profession__`), lines can contain other wildcards, and unknown names are left as they are for any other tool further down. A few example files are included; see `wildcards/README.md`.
+
+## Your libraries
+
+Every list comes from the `.xlsx` next to its node:
+
+* `style_atlas_library.xlsx`
+* `character_atlas_library.xlsx`
+* `setting_atlas_library.xlsx`
+
+Edit rows, add rows, or set **Enabled = No** to hide one, then refresh the browser. Each workbook has a **Settings** sheet with its rules and a **Changelog** sheet listing every change.
+
+Every selectable row has a unique 4-digit **ID** (`ST0599`, `KC0021`, `HP0003`…). The ID shows up in `info`, and it is also the thumbnail filename.
+
+## Thumbnails
+
+Save a small image as `thumbnails/<ID>.jpg` (or `.png` / `.webp`) and it appears when you hover that entry in a dropdown. Entries without an image show their ID, so you know what to name the file. `thumbnails/convert.ps1` batch-converts a folder to medium-quality JPG.
+
 ## Installation
 
-1. Copy this repository into `ComfyUI/custom_nodes/`:
-   ```bash
-   cd ComfyUI/custom_nodes
-   git clone https://github.com/atlasimp/Style_Atlas.git
-   ```
-   Or download the ZIP and extract it there.
-2. Install the only dependency:
-   ```bash
-   pip install openpyxl
-   ```
-   On portable ComfyUI, run this from the ComfyUI root:
-   ```bash
-   python_embeded\python.exe -m pip install openpyxl
-   ```
-3. Restart ComfyUI completely, then hard-refresh the browser (**Ctrl+F5**).
-4. Right-click on the canvas › **Add Node › Style Atlas › Prompt**.
+```bash
+cd ComfyUI/custom_nodes
+git clone https://github.com/atlasimp/Style_Atlas.git
+pip install openpyxl          # portable build: python_embeded\python.exe -m pip install openpyxl
+```
 
-### Repository structure
+Restart ComfyUI, then hard-refresh the browser (**Ctrl+F5**).
 
 ```text
 Style_Atlas/
 ├── __init__.py
-├── style_atlas.py
-├── style_atlas_library.xlsx
-├── character_atlas.py
-├── character_atlas_library.xlsx
-├── requirements.txt
+├── atlas_core.py                  shared: xlsx loading, dropdowns, random, wildcards, thumbnails
+├── style_atlas.py      + style_atlas_library.xlsx
+├── character_atlas.py  + character_atlas_library.xlsx
+├── setting_atlas.py    + setting_atlas_library.xlsx
+├── wildcards/                     your __wildcard__ .txt files
+├── thumbnails/                    <ID>.jpg previews
 └── js/
-    ├── (Style Atlas interface script)
-    └── character_atlas.js
+    ├── atlas_common.js            ❔ help, show / hide helpers
+    ├── style_atlas.js             mode switch, subject checkboxes, linked filters
+    ├── character_atlas.js         source switch, collapsible sections
+    ├── setting_atlas.js           source switch, collapsible layers
+    └── atlas_thumbnails.js        hover previews
 ```
 
-Keep each `.xlsx` next to its `.py` file and keep these file names.
+> **Upgrading from v2:** the order of the inputs changed (mode first, seed last), so nodes saved in older workflows may load with shifted values. Re-add the Atlas nodes in those workflows.
 
----
+## Outputs
 
-## 🎨 Style Atlas
+Each node returns:
 
-<img width="378" height="614" alt="image" src="https://github.com/user-attachments/assets/58846596-94aa-4fd4-9ec0-2e5a6bbc110a" />
+* `prompt`: the full text
+* the part it added on its own (`character`, `setting` or `style_text`)
+* `info`: every choice with its ID, the seed, the wildcard picks and any warning
 
-Adds a rendering style to your prompt.
+## Credits
 
-### Controls
-
-| Control | What it does |
-|---|---|
-| **Subject › Era › Category › Subcategory › Style** | Linked dropdowns. Each choice filters the next one, and the counts show how many styles are left. |
-| **Version** / **Realism** | Filter every list. |
-| **Architectural Style / Vehicle Design / Product Design** | Extra modifiers. They only appear when the matching Subject (or All) is selected. |
-| **Custom template** | Free layout using the placeholders `{prompt}`, `{style}` and `{modifiers}`. |
-
-### Example
-
-```text
-prompt:  a lighthouse on a cliff
-style:   Gouache Illustration
-output:  a lighthouse on a cliff, gouache illustration, opaque layered pigment, ...
-```
-
-### Editing the library
-
-`style_atlas_library.xlsx` holds every style. You can edit or add rows in Excel:
-- Edited prompt text is used on the **next run**.
-- Restart ComfyUI to update the **dropdown lists**.
-
----
-
-## 🧑 Character Atlas
-<img width="407" height="600" alt="image" src="https://github.com/user-attachments/assets/6e6b3bf0-8bfb-4b56-8cbb-473159f6a668" />
-
-Builds a character description and **adds it to the start of your prompt**.
-
-### Inputs and outputs
-
-| | |
-|---|---|
-| **prompt** (input) | Your scene, e.g. `standing in a rainy neon street`. |
-| **prompt** (output) | Character description + your prompt. |
-| **character** (output) | The character description only. |
-
-### Modes
-
-| Mode | Use it for |
-|---|---|
-| **Custom** | Building your own character, attribute by attribute. |
-| **Known Character** | 330 characters from games, anime, comics and films (Mario, Chun-Li, 2B, Sailor Moon, Batman...). |
-| **Preset (Actor)** | 55 actor roles (Neo by Keanu Reeves, Trinity by Carrie-Anne Moss, Leeloo by Milla Jovovich...). |
-
-Known characters start with **`<Character> from <Franchise>`**. Presets add **`, played by <Actor>`**.
-
-**Recognition** (Known and Preset modes only):
-- **Name + Description**: default and most reliable across models.
-- **Name Only**: for models that already know the character well.
-- **Description Only**: the look without the name.
-
-### Collapsible sections
-
-To keep the node small, attributes are grouped into sections. Click a header to fold or unfold it. The header shows how many entries are set, e.g. `▶ OUTFIT (3 set)`.
-
-| Section | Contents |
-|---|---|
-| **IDENTITY** | Gender, age, character type (human, elf, android, kitsune...), height, body shape. |
-| **FACE** | Face shape, jaw, cheekbones, eyebrows, eye shape, eye color, eyelashes, nose, lips, skin, facial hair, 2 distinctive features. |
-| **HAIR** | Hairstyle (133 styles in 9 groups) and hair color. |
-| **OUTFIT** | Top 1 and 2, Bottom 1 and 2, Full Body, Outerwear, Footwear. |
-| **ACCESSORIES** | Up to 6 accessories. |
-| **POSE** | 228 poses, including anime sitting poses (wariza, seiza, yokozuwari...) and gestures. |
-
-**Selecting a Known Character or Preset collapses every section.** You can still unfold any section to add things on top, for example Mario + a pose, or Trinity + different shoes.
-
-Fields only appear when they're useful:
-- **Color, fabric, pattern and finish** appear once a garment is chosen.
-- **Top 2 and Bottom 2** appear after Top 1 and Bottom 1.
-- **Full Body** (dress, armor, uniform...) hides and ignores the top and bottom slots.
-- **The next accessory slot** appears when the previous one is filled. Each accessory has its own color and material.
-
-Every dropdown accepts typing to search, e.g. type `wariza` or `chun`.
-
-### Outfit modifiers
-
-Each garment can take a **color** (141), **fabric** (88), **pattern** (44) and **finish** (36). They're combined in this order:
-
-```text
-[finish] [color] [pattern] [fabric] [garment]
-distressed black leather biker jacket
-forest green plaid wool skirt
-```
-
-The fabric list only shows materials that make sense for that slot. Choosing a fabric replaces the garment's built-in one, so you get "silk pants", never "silk leather pants".
-
-### Other options
-
-| Option | Effect |
-|---|---|
-| **prompt_length** | **Short** for compact prompts. **Long** adds construction and material detail. |
-| **character_position** | `Character, Prompt` (default) or `Prompt, Character`. |
-
-### Examples
-
-**Known character + pose**
-```text
-mode: Known Character   known_character: Super Mario | Mario
-pose: Jumping | Platformer Jump      prompt: inside a castle
-→ Mario from Super Mario, short stocky build, large rounded nose, thick dark mustache,
-  red cap with red M emblem, red shirt, blue overalls with yellow buttons,
-  jumping with one fist raised, inside a castle
-```
-
-**Custom character**
-```text
-→ young adult elf woman, tall stature, hourglass figure, balanced bust and hips,
-  narrow waist, thick arched eyebrows, green eyes, straight nose, auburn hair,
-  long wavy hairstyle, wearing burgundy velvet corset top, forest green plaid skirt,
-  distressed black leather biker jacket and knee-high boots,
-  with gold hoop earrings and katana, wariza, in a forest
-```
-
-### The library (`character_atlas_library.xlsx`)
-
-| Sheet | Contents |
-|---|---|
-| Known_Characters | 330 characters with short and long prompts |
-| Presets | 55 actor roles |
-| Attributes | Body shapes, hairstyles, face features, skin, hair color, age, character types... |
-| Outfits | Garments by slot (Top / Bottom / Full Body / Outerwear / Footwear) |
-| Colors / Fabrics / Patterns / Finishes | Outfit modifiers |
-| Poses | 228 poses |
-| Accessories | 359 accessories |
-| Settings | Rules used by the node |
-
-To add an entry, add a row with the same columns. Set **Enabled** to `No` to hide a row without deleting it. If a Short or Long prompt is empty, the node uses the other one. **Restart ComfyUI** after editing.
-
----
-
-## Recommended workflow
-
-```text
-Character Atlas (prompt output) → Style Atlas (prompt input) → CLIP Text Encode
-```
-
-Keep the jobs separate:
-- **Character Atlas:** who the character is and how they look.
-- **Your prompt:** what they are doing and where.
-- **Style Atlas:** how the image is rendered.
-
----
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---|---|
-| Node missing from the menu | Python problem. Look for `IMPORT FAILED` or `[Style Atlas] ... failed to load` in the console. |
-| `No module named openpyxl` | Install it (see Installation). |
-| `character_atlas_library.xlsx not found` | Put the file next to `character_atlas.py` with that exact name. |
-| Sections don't collapse / dropdowns aren't linked | JavaScript problem. Press Ctrl+F5, then check the browser console (F12). The nodes still work, just fully expanded. |
-| New xlsx entries not in the dropdowns | Restart ComfyUI. |
-| Node appears twice / conflicts | Remove any old separate `ComfyUI-Character-Atlas` folder from `custom_nodes`. |
-| Changes to `__init__.py` ignored | Delete the `__pycache__` folder and restart. |
-
----
-
-## Requirements
-
-- ComfyUI
-- Python package: `openpyxl`
+The Krea 2 wording rules for expressions and hair come from community testing published on Civitai: *Facial Expression Vocabulary* and *Hairstyle Vocabulary* by **Azimondious**, and the *Character, Clothing & Outfit Taglist* by **Hellfreeze**. Thank you for doing the slow, careful work.
